@@ -18,16 +18,20 @@ Here are the available commands in the bot:
 
 - `/start`  
   Starts the bot and sends a welcome message with instructions on how to use the bot.
+![Example of start command](./Images/Start_command.png)
 
 - `/help`  
   Sends a list of all available commands to the user.
+![Example of help command](./Images/Help_command.png)
 
 - `/add_word <word> <translation> [example]`  
   Adds a new word to the database. The word, its translation, and an optional example sentence can be provided. Example: /add_word apple яблоко "I ate an apple today."
+![Example of add_word command](./Images/Add_word_command.png)
 
 - `/quiz`  
 Starts a vocabulary quiz, where the bot sends random words and checks the user's answers.
 User can continue the quiz and asks the next word or exit the quiz, and it will show the number of correct answers.
+![Example of quiz command](./Images/Quiz_command.png)
 
 ## Database Structure
 
