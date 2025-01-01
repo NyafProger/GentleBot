@@ -16,6 +16,7 @@ def main() -> None:
     application.add_handler(CommandHandler("add_word", add_word_command))
     application.add_handler(CommandHandler("quiz", quiz_command))
     application.add_handler(MessageHandler(filters.Regex("^(Далі|Хочу закінчити)$"), handle_quiz_choice))
+    application.add_handler(CommandHandler("export_words", export_words_command))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, check_answer))
 
     application.run_polling(allowed_updates=Update.ALL_TYPES)

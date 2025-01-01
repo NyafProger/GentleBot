@@ -1,5 +1,8 @@
-from random import choice
-from telegram import ReplyKeyboardMarkup, BotCommand
+import csv
+from datetime import datetime
+import io
+from random import choice, choices
+from telegram import ReplyKeyboardMarkup, BotCommand, InputFile
 from telegram import ForceReply, Update
 from telegram.ext import ContextTypes
 from database.base import SessionLocal
@@ -64,6 +67,7 @@ async def quiz_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     This method checks if there are words in the database, and if so, it selects a random word for the user to translate.
     It stores the word's ID in the user's data and initializes the quiz state. If no words are available, it prompts
     the user to add words using the /add_word command.
+    This method selects a random word based on both the frequency of correct answers and the time since it was last guessed.
 
     Example:
     /quiz
@@ -76,7 +80,36 @@ async def quiz_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             await update.message.reply_text(bot_phrases["empty_db"])
             return
 
-        selected_word = choice(words)
+        # Calculate weight for each word based on last guessed time
+        current_time = datetime.now()
+
+        # Weights will be based on two factors: correct_answer_count and time since last guessed
+        weights = []
+        for word in words:
+            # Calculate days since the word was last guessed
+            days_since_last_guessed = (current_time - word.last_guessed).days
+
+            # Adjust the weight based on the last guessed time (add extra weight after a week)
+            if days_since_last_guessed > 7:
+                time_weight = (days_since_last_guessed - 7)  # Incremental weight for each day after a week
+            else:
+                time_weight = 0
+
+            # Reverse weight calculation: Less correct answers -> higher weight
+            # Increase weight when correct_answer_count is low, decrease when it's high
+            correct_answer_weight = max(0, 10 - word.correct_answer_count)  # We use a max to avoid negative weights
+
+            # Final weight is a combination of the reversed correct_answer_count and the time weight
+            weight = correct_answer_weight + time_weight
+            weights.append(weight)
+
+        # Select a word based on the calculated weights
+        selected_word = choices(words, weights=weights, k=1)[0]
+
+        # Update the last guessed time to now
+        selected_word.last_guessed = current_time
+        db.commit()
+
         context.user_data["quiz_word_id"] = selected_word.id
 
         if "quiz_correct" not in context.user_data:
@@ -114,11 +147,14 @@ async def check_answer(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         correct_answer = word.translation.strip().lower()
 
         if user_answer.lower() == correct_answer.lower():
+            word.correct_answer_count += 1
             context.user_data["quiz_correct"] += 1
             await update.message.reply_text(bot_phrases["quiz_correct"])
         else:
+            word.correct_answer_count -= 1
             await update.message.reply_text(bot_phrases["incorrect_answer"].format(correct_answer=correct_answer))
 
+        db.commit()
         del context.user_data["quiz_word_id"]
 
         keyboard = [[bot_phrases["quiz_next"], bot_phrases["quiz_exit"]]]
@@ -164,3 +200,41 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
     commands = bot_phrases["help_message"]
     await update.message.reply_text(commands)
+
+async def export_words_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """
+    Exports the entire Word table as a CSV file and sends it to the user.
+
+    This method queries all words from the database, converts them to CSV format, and sends the CSV file to the user.
+    Example: /export_words
+    """
+
+    db = SessionLocal()
+    try:
+        # Query all words from the database
+        words = db.query(Word).all()
+
+        # Create an in-memory file to write CSV data
+        output = io.StringIO()
+        csv_writer = csv.writer(output)
+
+        # Write CSV header
+        csv_writer.writerow(["ID", "Word", "Translation", "Example", "Correct Answer Count"])
+
+        # Write each word's data as a row
+        for word in words:
+            csv_writer.writerow([word.id, word.word, word.translation, word.example, word.correct_answer_count])
+
+        # Move the cursor to the beginning of the file for reading
+        output.seek(0)
+
+        # Send the CSV file to the user
+        await update.message.reply_document(
+            document=InputFile(output, filename="words.csv"),
+            caption="Here is the list of all words in CSV format."
+        )
+
+    except Exception as e:
+        await update.message.reply_text(bot_phrases["export_error"].format(error=str(e)))
+    finally:
+        db.close()
